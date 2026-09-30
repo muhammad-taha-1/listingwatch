@@ -3,6 +3,7 @@ import type { Config } from './lib/config.js';
 import { errorHandler, notFoundHandler } from './lib/errors.js';
 import { cors, requestLogger } from './lib/http.js';
 import { healthRouter } from './routes/health.js';
+import { restaurantsRouter } from './routes/restaurants.js';
 
 /**
  * Build the Express app without calling listen(), so the same app runs under
@@ -17,6 +18,7 @@ export function createApp(config: Config) {
   app.use(express.json({ limit: '100kb' }));
 
   app.use('/health', healthRouter);
+  app.use('/restaurants', restaurantsRouter(config.ADMIN_TOKEN));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
