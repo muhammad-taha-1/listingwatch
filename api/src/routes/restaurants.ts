@@ -1,11 +1,12 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { isValidObjectId } from 'mongoose';
 import { z } from 'zod';
 import { requireAdmin } from '../lib/auth.js';
-import { ConflictError, NotFoundError } from '../lib/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { encodeCursor, paginationQuerySchema } from '../lib/pagination.js';
 import { parse } from '../lib/validate.js';
 import { Restaurant, restaurantInputSchema, restaurantPatchSchema } from '../models/Restaurant.js';
+import { importRestaurantCsv } from '../services/importer.js';
 
 const idParamsSchema = z.object({
   id: z.string().refine((id) => isValidObjectId(id), 'Invalid restaurant id'),
@@ -39,6 +40,25 @@ export function restaurantsRouter(adminToken: string) {
       throw toConflict(err, input);
     }
   });
+
+  // Body is raw CSV text (Content-Type: text/csv), e.g. from Postman's "raw" body
+  // or `curl --data-binary @file.csv`.
+  router.post(
+    '/import',
+    admin,
+    express.text({ type: ['text/csv', 'text/plain'], limit: '1mb' }),
+    async (req, res) => {
+      if (typeof req.body !== 'string' || req.body.trim() === '') {
+        throw new ValidationError(undefined, 'Send the CSV as the request body with Content-Type: text/csv');
+      }
+      const result = await importRestaurantCsv(req.body);
+      req.log.info(
+        { inserted: result.inserted, skipped: result.skipped, failed: result.failed },
+        'restaurants imported',
+      );
+      res.json(result);
+    },
+  );
 
   router.get('/:id', async (req, res) => {
     const { id } = parse(idParamsSchema, req.params);
