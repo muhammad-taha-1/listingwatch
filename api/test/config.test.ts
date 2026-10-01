@@ -12,6 +12,13 @@ describe('parseConfig', () => {
     expect(config).toMatchObject({ PORT: 4000, LOG_LEVEL: 'info', NODE_ENV: 'development' });
   });
 
+  it('treats empty values as unset', () => {
+    const config = parseConfig({ ...valid, ANTHROPIC_API_KEY: '', LOG_LEVEL: '' });
+    expect(config.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(config.LOG_LEVEL).toBe('info');
+    expect(() => parseConfig({ ...valid, MONGODB_URI: '' })).toThrow(/MONGODB_URI/);
+  });
+
   it('fails fast when a required value is missing', () => {
     expect(() => parseConfig({ ADMIN_TOKEN: valid.ADMIN_TOKEN })).toThrow(ConfigError);
     expect(() => parseConfig({ ADMIN_TOKEN: valid.ADMIN_TOKEN })).toThrow(/MONGODB_URI/);

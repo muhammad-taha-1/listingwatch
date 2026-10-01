@@ -19,7 +19,10 @@ export class ConfigError extends Error {
 
 /** Validate an env object. Pure, so it's easy to test. */
 export function parseConfig(env: Record<string, string | undefined>): Config {
-  const result = configSchema.safeParse(env);
+  // Treat `KEY=` (empty string) as unset, so optional keys and defaults behave
+  // the same whether the line is blank or missing from .env.
+  const cleaned = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
+  const result = configSchema.safeParse(cleaned);
   if (!result.success) {
     // Only report which keys are wrong, never the values (they may be secrets).
     const problems = result.error.issues
