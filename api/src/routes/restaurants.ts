@@ -1,15 +1,17 @@
 import express, { Router } from 'express';
-import { isValidObjectId } from 'mongoose';
 import { z } from 'zod';
 import { requireAdmin } from '../lib/auth.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { encodeCursor, paginationQuerySchema } from '../lib/pagination.js';
-import { parse } from '../lib/validate.js';
+import { objectIdParams, parse } from '../lib/validate.js';
+import { CheckResult } from '../models/CheckResult.js';
 import { Restaurant, restaurantInputSchema, restaurantPatchSchema } from '../models/Restaurant.js';
 import { importRestaurantCsv } from '../services/importer.js';
 
-const idParamsSchema = z.object({
-  id: z.string().refine((id) => isValidObjectId(id), 'Invalid restaurant id'),
+const idParamsSchema = objectIdParams('restaurant');
+
+const historyQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(30),
 });
 
 export function restaurantsRouter(adminToken: string) {
@@ -65,6 +67,17 @@ export function restaurantsRouter(adminToken: string) {
     const restaurant = await Restaurant.findById(id);
     if (!restaurant) throw new NotFoundError('Restaurant not found');
     res.json(restaurant);
+  });
+
+  // Link check results for one restaurant, newest first (uses the
+  // { restaurantId: 1, checkedAt: -1 } index).
+  router.get('/:id/history', async (req, res) => {
+    const { id } = parse(idParamsSchema, req.params);
+    const { limit } = parse(historyQuerySchema, req.query);
+    const exists = await Restaurant.exists({ _id: id });
+    if (!exists) throw new NotFoundError('Restaurant not found');
+    const items = await CheckResult.find({ restaurantId: id }).sort({ checkedAt: -1 }).limit(limit);
+    res.json({ items });
   });
 
   router.patch('/:id', admin, async (req, res) => {

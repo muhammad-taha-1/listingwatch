@@ -1,5 +1,13 @@
-import type { z } from 'zod';
+import { isValidObjectId } from 'mongoose';
+import { z } from 'zod';
 import { ValidationError, formatZodIssues } from './errors.js';
+
+/** `{ id }` route params that must be a Mongo ObjectId, e.g. objectIdParams('restaurant'). */
+export function objectIdParams(label: string) {
+  return z.object({
+    id: z.string().refine((id) => isValidObjectId(id), `Invalid ${label} id`),
+  });
+}
 
 /**
  * Parse request input with a zod schema, or throw a 400 ValidationError.
