@@ -1,5 +1,6 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
 import { z } from 'zod';
+import { toJSONOptions } from '../lib/json.js';
 
 // ---- API input validation (zod) -------------------------------------------
 // Shared by the routes and the CSV importer so both enforce the same rules.
@@ -35,17 +36,7 @@ const restaurantSchema = new Schema(
     expectedOrderUrl: { type: String, required: true, trim: true },
     description: { type: String, default: '' },
   },
-  {
-    timestamps: true,
-    toJSON: {
-      versionKey: false,
-      transform(_doc, ret: Record<string, unknown>) {
-        ret.id = String(ret._id);
-        delete ret._id;
-        return ret;
-      },
-    },
-  },
+  { timestamps: true, toJSON: toJSONOptions },
 );
 
 // One restaurant per (name, city), case-insensitive, so re-running an import
