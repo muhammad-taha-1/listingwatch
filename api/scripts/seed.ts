@@ -2,7 +2,8 @@
  * Seed the database with ~30 sample restaurants from sample-restaurants.csv.
  *
  *   npm run seed            # insert missing restaurants (safe to re-run)
- *   npm run seed -- --reset # delete ALL restaurants first
+ *   npm run seed:reset      # delete ALL restaurants first
+ *                           # (not `npm run seed -- --reset`: Windows PowerShell drops the `--`)
  *
  * The rows are grouped to exercise the Phase 2 link checker and Phase 3 AI reviewer:
  *   - ok:                stable sites, a slow-but-fine one (3s), same-host redirects
