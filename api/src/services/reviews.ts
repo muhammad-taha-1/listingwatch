@@ -25,6 +25,7 @@ export async function reviewRestaurant(
     restaurantId: restaurant._id,
     reviewedDescription: description,
     score: result.score,
+    criteria: result.criteria,
     issues: result.issues,
     suggestedDescription: result.suggestedDescription,
     model: result.model,

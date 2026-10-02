@@ -11,6 +11,7 @@ import pLimit from 'p-limit';
 import { loadConfig } from '../src/lib/config.js';
 import { connectDb, disconnectDb } from '../src/lib/db.js';
 import { logger } from '../src/lib/logger.js';
+import { CRITERIA } from '../src/models/AiReview.js';
 import { Restaurant } from '../src/models/Restaurant.js';
 import { createAiReviewer, createAnthropicClient } from '../src/services/aiReviewer.js';
 import { reviewRestaurant } from '../src/services/reviews.js';
@@ -47,6 +48,8 @@ async function main() {
           return {
             name: restaurant.name,
             score: review.score,
+            // e.g. "15/10/20/15/0", in CRITERIA order
+            criteria: CRITERIA.map((key) => review.criteria[key].score).join('/'),
             issues: review.issues.map((issue) => issue.type).join(', '),
             inputTokens: review.inputTokens,
             outputTokens: review.outputTokens,
@@ -61,6 +64,7 @@ async function main() {
     ),
   );
 
+  console.log(`criteria order: ${CRITERIA.join('/')}`);
   console.table(rows.map(({ failed: _failed, ...row }) => row));
   const failed = rows.filter((row) => row.failed).length;
   const total = rows.reduce(

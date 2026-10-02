@@ -15,8 +15,17 @@ const pizza = {
   description: 'The best pizza in the world.',
 };
 
+const criterion = (score: number) => ({ reason: 'Because.', score });
+
 const result: ReviewResult = {
   score: 50,
+  criteria: {
+    clarity: criterion(15),
+    cuisine: criterion(10),
+    location: criterion(10),
+    call_to_action: criterion(15),
+    honesty: criterion(0),
+  },
   issues: [{ type: 'unverifiable_claim', detail: '"Best in the world" cannot be checked.' }],
   suggestedDescription: 'Pizza in Dublin. Order online.',
   model: 'claude-haiku-4-5-20251001',
@@ -49,6 +58,7 @@ describe('POST /restaurants/:id/review', () => {
       restaurantId: id,
       reviewedDescription: pizza.description,
       score: 50,
+      criteria: result.criteria,
       issues: result.issues,
       suggestedDescription: result.suggestedDescription,
       model: result.model,
