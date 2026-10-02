@@ -134,8 +134,18 @@ export function createAiReviewer(client: MessagesClient, model = AI_REVIEW_MODEL
           .flatMap((block) => (block.type === 'text' ? [block.text] : []))
           .join('');
         const parsed = parseOutput(text);
-        // Cut off at max_tokens means the JSON is incomplete, whatever it parses to.
-        const problem = response.stop_reason === 'max_tokens' ? 'response was cut off' : parsed.problem;
+        let problem: string | undefined;
+        if (response.stop_reason === 'max_tokens') {
+          // Cut off means the JSON is incomplete, whatever it parses to.
+          problem = 'response was cut off';
+        } else if (parsed.problem) {
+          problem = parsed.problem;
+        } else if (parsed.output) {
+          const added = addedUnsupportedClaims(listing.description, parsed.output.suggestedDescription);
+          if (added.length > 0) {
+            problem = `suggestedDescription adds ${added.map((claim) => `"${claim}"`).join(', ')}, which the listing does not say`;
+          }
+        }
 
         if (!problem && parsed.output) {
           const costUsd = estimateCostUsd(inputTokens, outputTokens);
@@ -210,6 +220,32 @@ async function callModel(
  */
 export function totalScore(criteria: ReviewOutput['criteria']): number {
   return Object.values(criteria).reduce((sum, criterion) => sum + criterion.score, 0);
+}
+
+// Claims a rewrite must not introduce. Each entry covers the word's common
+// forms, and synonyms of the same fact share an entry (pickup = collection).
+const UNSUPPORTED_CLAIMS: { label: string; pattern: RegExp }[] = [
+  { label: 'delivery', pattern: /\bdeliver(y|ies|s|ed)?\b/i },
+  { label: 'pickup or collection', pattern: /\b(pick[- ]?up|collect(ion)?|take[- ]?away)\b/i },
+  { label: 'fresh', pattern: /\bfresh(ly)?\b/i },
+  { label: 'authentic', pattern: /\bauthentic\b/i },
+  { label: 'traditional', pattern: /\btradition(al|ally)?\b/i },
+  { label: 'homemade', pattern: /\bhome[- ]?made\b/i },
+  { label: 'delicious', pattern: /\bdelicious\b/i },
+  { label: 'family-run', pattern: /\bfamily[- ](run|owned)\b/i },
+  { label: 'award-winning', pattern: /\baward[- ]winning\b/i },
+  { label: 'best', pattern: /\bbest\b/i },
+];
+
+/**
+ * Claims that appear in the rewrite but not in the original description.
+ * The prompt already forbids them, but a prompt rule only makes a mistake less
+ * likely (a real run still produced "fresh juices"); this check enforces it.
+ */
+export function addedUnsupportedClaims(original: string, rewrite: string): string[] {
+  return UNSUPPORTED_CLAIMS.filter(
+    ({ pattern }) => pattern.test(rewrite) && !pattern.test(original),
+  ).map(({ label }) => label);
 }
 
 function parseOutput(text: string): { output?: ReviewOutput; problem?: string } {
