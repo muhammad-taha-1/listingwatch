@@ -16,6 +16,7 @@
     "seed:reset": "tsx --env-file-if-exists=.env scripts/seed.ts --reset"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "csv-parse": "^7.0.3",
     "express": "^5.2.1",
     "mongoose": "^9.10.3",

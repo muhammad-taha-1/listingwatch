@@ -22,6 +22,8 @@ export function useTestApp() {
       NODE_ENV: 'test',
       MONGODB_URI: mongo.getUri('listingwatch-test'),
       ADMIN_TOKEN,
+      // Never used for real calls: tests inject a fake AI reviewer.
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
       LOG_LEVEL: 'silent',
     });
     await connectDb(config.MONGODB_URI);

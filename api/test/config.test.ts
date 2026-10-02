@@ -4,6 +4,7 @@ import { ConfigError, parseConfig } from '../src/lib/config.js';
 const valid = {
   MONGODB_URI: 'mongodb://localhost:27017/listingwatch',
   ADMIN_TOKEN: 'a-long-enough-admin-token',
+  ANTHROPIC_API_KEY: 'test-anthropic-key',
 };
 
 describe('parseConfig', () => {
@@ -13,10 +14,10 @@ describe('parseConfig', () => {
   });
 
   it('treats empty values as unset', () => {
-    const config = parseConfig({ ...valid, ANTHROPIC_API_KEY: '', LOG_LEVEL: '' });
-    expect(config.ANTHROPIC_API_KEY).toBeUndefined();
+    const config = parseConfig({ ...valid, LOG_LEVEL: '' });
     expect(config.LOG_LEVEL).toBe('info');
     expect(() => parseConfig({ ...valid, MONGODB_URI: '' })).toThrow(/MONGODB_URI/);
+    expect(() => parseConfig({ ...valid, ANTHROPIC_API_KEY: '' })).toThrow(/ANTHROPIC_API_KEY/);
   });
 
   it('fails fast when a required value is missing', () => {

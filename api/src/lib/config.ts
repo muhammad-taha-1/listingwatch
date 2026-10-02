@@ -7,8 +7,8 @@ const configSchema = z.object({
   ADMIN_TOKEN: z.string().min(16, 'ADMIN_TOKEN must be at least 16 characters'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
-  // Optional until Phase 3 (AI reviewer) makes it required.
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  // Used only server-side by the AI reviewer (services/aiReviewer.ts).
+  ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
 });
 
 export type Config = z.infer<typeof configSchema>;
