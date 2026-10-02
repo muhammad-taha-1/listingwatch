@@ -16,9 +16,13 @@ Estimated time: ~2 days (weekend). Phases 0-4 on day 1, phases 5-8 on day 2.
 - [ ] AWS account: choose the **Free plan** at signup (can't be billed by mistake).
 - [ ] Turn on MFA for the root user. Then stop using root.
 - [ ] AWS Budgets: create a monthly budget alert at $1 (also earns $20 credit).
-- [ ] Create an admin user in IAM Identity Center (or an IAM user with MFA) for daily use.
-- [ ] Install AWS CLI v2 and AWS SAM CLI. Run `aws configure sso` (or `aws configure`) and
-      confirm with `aws sts get-caller-identity`.
+- [ ] Create an IAM user (`taha-admin`) with console access, AdministratorAccess and MFA for
+      daily use. Do NOT enable IAM Identity Center with AWS Organizations: on the Free plan,
+      creating an organization upgrades the account to paid and expires the free credits.
+      No access keys.
+- [ ] Install AWS CLI v2 (2.32.0+) and AWS SAM CLI. Run `aws login` (short-term credentials
+      from your console sign-in, rotated automatically) and confirm with
+      `aws sts get-caller-identity`.
 - [ ] Pick one region and stick with it (e.g. `eu-west-1` Ireland, close to Flipdish's HQ,
       or `me-central-1`/`ap-south-1` for lower latency from Karachi).
 - [ ] MongoDB Atlas: free M0 cluster, same region family if possible. Create a DB user.
