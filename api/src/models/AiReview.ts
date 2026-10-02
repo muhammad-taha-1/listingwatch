@@ -39,8 +39,8 @@ const aiReviewSchema = new Schema(
   { timestamps: { createdAt: true, updatedAt: false }, toJSON: toJSONOptions },
 );
 
-// Reviews of one restaurant, newest first.
-aiReviewSchema.index({ restaurantId: 1, createdAt: -1 });
+// Reviews of one restaurant, newest first (_id breaks same-millisecond ties).
+aiReviewSchema.index({ restaurantId: 1, createdAt: -1, _id: -1 });
 
 export type AiReviewDoc = InferSchemaType<typeof aiReviewSchema>;
 

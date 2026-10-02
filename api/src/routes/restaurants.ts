@@ -4,17 +4,19 @@ import { requireAdmin } from '../lib/auth.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { encodeCursor, paginationQuerySchema } from '../lib/pagination.js';
 import { objectIdParams, parse } from '../lib/validate.js';
+import { AiReview } from '../models/AiReview.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { Restaurant, restaurantInputSchema, restaurantPatchSchema } from '../models/Restaurant.js';
+import type { AiReviewer } from '../services/aiReviewer.js';
 import { importRestaurantCsv } from '../services/importer.js';
 
 const idParamsSchema = objectIdParams('restaurant');
 
-const historyQuerySchema = z.object({
+const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
 });
 
-export function restaurantsRouter(adminToken: string) {
+export function restaurantsRouter(adminToken: string, aiReviewer: AiReviewer) {
   const router = Router();
   const admin = requireAdmin(adminToken);
 
@@ -73,10 +75,47 @@ export function restaurantsRouter(adminToken: string) {
   // { restaurantId: 1, checkedAt: -1 } index).
   router.get('/:id/history', async (req, res) => {
     const { id } = parse(idParamsSchema, req.params);
-    const { limit } = parse(historyQuerySchema, req.query);
+    const { limit } = parse(listQuerySchema, req.query);
     const exists = await Restaurant.exists({ _id: id });
     if (!exists) throw new NotFoundError('Restaurant not found');
     const items = await CheckResult.find({ restaurantId: id }).sort({ checkedAt: -1 }).limit(limit);
+    res.json({ items });
+  });
+
+  // Ask the LLM to review the listing description, then store the review.
+  // Admin-only because every call costs money.
+  router.post('/:id/review', admin, async (req, res) => {
+    const { id } = parse(idParamsSchema, req.params);
+    const restaurant = await Restaurant.findById(id);
+    if (!restaurant) throw new NotFoundError('Restaurant not found');
+    const { name, city, description } = restaurant;
+    if (description.trim() === '') {
+      throw new ValidationError(undefined, 'This restaurant has no description to review');
+    }
+
+    const result = await aiReviewer.review({ name, city, description }, req.log);
+    const review = await AiReview.create({
+      restaurantId: restaurant._id,
+      reviewedDescription: description,
+      score: result.score,
+      issues: result.issues,
+      suggestedDescription: result.suggestedDescription,
+      model: result.model,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      costUsd: result.costUsd,
+    });
+    res.status(201).json(review);
+  });
+
+  // AI reviews for one restaurant, newest first. _id breaks ties between
+  // reviews saved in the same millisecond (index { restaurantId, createdAt, _id }).
+  router.get('/:id/reviews', async (req, res) => {
+    const { id } = parse(idParamsSchema, req.params);
+    const { limit } = parse(listQuerySchema, req.query);
+    const exists = await Restaurant.exists({ _id: id });
+    if (!exists) throw new NotFoundError('Restaurant not found');
+    const items = await AiReview.find({ restaurantId: id }).sort({ createdAt: -1, _id: -1 }).limit(limit);
     res.json({ items });
   });
 
