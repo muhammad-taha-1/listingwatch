@@ -9,6 +9,7 @@ import { CheckResult } from '../models/CheckResult.js';
 import { Restaurant, restaurantInputSchema, restaurantPatchSchema } from '../models/Restaurant.js';
 import type { AiReviewer } from '../services/aiReviewer.js';
 import { importRestaurantCsv } from '../services/importer.js';
+import { reviewRestaurant } from '../services/reviews.js';
 
 const idParamsSchema = objectIdParams('restaurant');
 
@@ -88,23 +89,7 @@ export function restaurantsRouter(adminToken: string, aiReviewer: AiReviewer) {
     const { id } = parse(idParamsSchema, req.params);
     const restaurant = await Restaurant.findById(id);
     if (!restaurant) throw new NotFoundError('Restaurant not found');
-    const { name, city, description } = restaurant;
-    if (description.trim() === '') {
-      throw new ValidationError(undefined, 'This restaurant has no description to review');
-    }
-
-    const result = await aiReviewer.review({ name, city, description }, req.log);
-    const review = await AiReview.create({
-      restaurantId: restaurant._id,
-      reviewedDescription: description,
-      score: result.score,
-      issues: result.issues,
-      suggestedDescription: result.suggestedDescription,
-      model: result.model,
-      inputTokens: result.inputTokens,
-      outputTokens: result.outputTokens,
-      costUsd: result.costUsd,
-    });
+    const review = await reviewRestaurant(restaurant, aiReviewer, req.log);
     res.status(201).json(review);
   });
 
