@@ -27,7 +27,7 @@ const validOutput = {
     honesty: criterion(0),
   },
   issues: [{ type: 'unverifiable_claim', detail: '"Best pizza in the world" cannot be checked.' }],
-  suggestedDescription: 'Wood-fired pizza in Dublin. Order online for delivery or collection.',
+  suggestedDescription: 'Pizza in Dublin. Order online.',
 };
 
 /** A minimal Messages API response. Only the fields the reviewer reads. */
@@ -77,6 +77,19 @@ describe('aiReviewer', () => {
     });
     expect(params.system).toMatch(/untrusted/);
     expect(params.messages).toEqual([{ role: 'user', content: formatListing(listing) }]);
+  });
+
+  it('tells the model not to invent facts in the rewrite', async () => {
+    // These rules came from a real run: rewrites added "for delivery or
+    // takeaway", "authentic" and "Visit us" that the listings never said.
+    const { client, create } = fakeClient(message(JSON.stringify(validOutput)));
+
+    await createAiReviewer(client).review(listing);
+
+    const system: string = create.mock.calls[0]?.[0].system;
+    expect(system).toMatch(/Never add how food is ordered or received \(delivery, takeaway/);
+    expect(system).toMatch(/"fresh", "authentic", "traditional"/);
+    expect(system).toMatch(/Do not invite customers to visit/);
   });
 
   it('re-asks once with the reason when the output is not JSON', async () => {
