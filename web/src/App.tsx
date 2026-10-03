@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from 'react-router'
+import { useAdminToken } from './auth/adminToken'
 import OverviewPage from './pages/OverviewPage'
 import RestaurantsPage from './pages/RestaurantsPage'
 
@@ -6,6 +7,19 @@ const navClass = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-medium ${
     isActive ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-200'
   }`
+
+function AdminStatus() {
+  const { hasToken, forgetToken } = useAdminToken()
+  if (!hasToken) return null
+  return (
+    <div className="ml-auto flex items-center gap-2 text-sm text-slate-600">
+      <span>Admin unlocked</span>
+      <button type="button" onClick={forgetToken} className="text-slate-900 underline hover:no-underline">
+        Forget token
+      </button>
+    </div>
+  )
+}
 
 export default function App() {
   return (
@@ -21,6 +35,7 @@ export default function App() {
               Restaurants
             </NavLink>
           </nav>
+          <AdminStatus />
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">

@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import { createQueryClient } from './api/queryClient'
 import App from './App'
+import AdminTokenProvider from './auth/AdminTokenProvider'
 import './index.css'
 
 const queryClient = createQueryClient()
@@ -12,7 +13,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <App />
+        <AdminTokenProvider>
+          <App />
+        </AdminTokenProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,
