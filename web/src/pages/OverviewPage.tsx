@@ -1,11 +1,16 @@
+import { lazy, Suspense } from 'react'
 import { Link } from 'react-router'
 import { useRecentRuns, useRestaurantStatus, useStartRun } from '../api/queries'
 import type { CheckRun, RestaurantStatus } from '../api/types'
-import CoverageChart from '../components/CoverageChart'
 import ErrorMessage from '../components/ErrorMessage'
 import StatCard, { StatCardSkeleton } from '../components/StatCard'
 import { formatDateTime, formatPercent, formatRelative } from '../lib/format'
 import { activeRun, coverage, coverageSeries, latestCompleted } from '../lib/runs'
+
+// Recharts is most of the bundle and only this chart uses it, so load it in
+// its own chunk; the Restaurants page never downloads it.
+const CoverageChart = lazy(() => import('../components/CoverageChart'))
+const chartPlaceholder = <div className="h-56 animate-pulse rounded bg-slate-100" aria-label="Loading chart" />
 
 export default function OverviewPage() {
   const restaurants = useRestaurantStatus()
@@ -118,7 +123,7 @@ function StatCards({ restaurants, runs }: { restaurants?: RestaurantStatus[]; ru
 }
 
 function CoverageSection({ runs, isPending }: { runs?: CheckRun[]; isPending: boolean }) {
-  if (isPending) return <div className="h-56 animate-pulse rounded bg-slate-100" aria-label="Loading chart" />
+  if (isPending) return chartPlaceholder
   if (!runs) return null
 
   const points = coverageSeries(runs)
@@ -129,5 +134,9 @@ function CoverageSection({ runs, isPending }: { runs?: CheckRun[]; isPending: bo
       </p>
     )
   }
-  return <CoverageChart points={points} />
+  return (
+    <Suspense fallback={chartPlaceholder}>
+      <CoverageChart points={points} />
+    </Suspense>
+  )
 }
