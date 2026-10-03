@@ -63,7 +63,8 @@ template.yaml
 - `cd api && npm run dev` - local API on http://localhost:4000
 - `cd api && npm test` - tests
 - `cd api && npm run lint && npm run typecheck`
-- `cd web && npm run dev` - local dashboard on http://localhost:5173
+- `cd web && npm run dev` - local dashboard on http://localhost:5173 (needs `web/.env`, see `web/.env.example`)
+- `cd web && npm run lint && npm run typecheck && npm test` - web checks (lint is oxlint)
 - `sam build` / `sam deploy` - build and deploy (I run deploy myself)
 - `sam logs -n ApiFunction --tail` - tail production logs
 

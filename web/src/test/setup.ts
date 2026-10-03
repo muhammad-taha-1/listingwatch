@@ -1,0 +1,9 @@
+import '@testing-library/jest-dom/vitest'
+import { cleanup } from '@testing-library/react'
+import { afterEach } from 'vitest'
+
+// Vitest doesn't enable globals here, so Testing Library can't register its
+// own cleanup; unmount rendered components after each test ourselves.
+afterEach(() => {
+  cleanup()
+})
