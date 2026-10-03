@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { useAdminToken } from '../auth/adminToken'
 import { activeRun } from '../lib/runs'
 import { apiFetch } from './client'
-import type { CheckRun, ImportResult, Items, RestaurantStatus, RunStatus } from './types'
+import type { AiReview, CheckResult, CheckRun, ImportResult, Items, RestaurantStatus, RunStatus } from './types'
 
 // Hierarchical keys: invalidating ['restaurants'] refreshes every query under it
 // (status list, each restaurant's history and reviews).
@@ -11,6 +11,45 @@ export const queryKeys = {
   restaurants: ['restaurants'] as const,
   restaurantStatus: ['restaurants', 'status'] as const,
   runs: ['checks', 'runs'] as const,
+  history: (id: string) => ['restaurants', id, 'history'] as const,
+  latestReview: (id: string) => ['restaurants', id, 'latestReview'] as const,
+}
+
+const HISTORY_LIMIT = 10
+
+/** One restaurant's recent link checks, newest first. */
+export function useRestaurantHistory(id: string) {
+  return useQuery({
+    queryKey: queryKeys.history(id),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<CheckResult>>(`/restaurants/${id}/history?limit=${HISTORY_LIMIT}`, { signal }).then(
+        (body) => body.items,
+      ),
+  })
+}
+
+/** The newest AI review, or null if the restaurant has never been reviewed. */
+export function useLatestReview(id: string) {
+  return useQuery({
+    queryKey: queryKeys.latestReview(id),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<AiReview>>(`/restaurants/${id}/reviews?limit=1`, { signal }).then((body) => body.items[0] ?? null),
+  })
+}
+
+/** Paid call (one LLM request). The response is the new review, so put it straight into the cache. */
+export function useReviewRestaurant(id: string) {
+  const { runAsAdmin } = useAdminToken()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      runAsAdmin((token) => apiFetch<AiReview>(`/restaurants/${id}/review`, { method: 'POST', token })),
+    onSuccess: (review) => {
+      queryClient.setQueryData(queryKeys.latestReview(id), review)
+      // The table's AI score column comes from the status list.
+      return queryClient.invalidateQueries({ queryKey: queryKeys.restaurantStatus })
+    },
+  })
 }
 
 const RUN_POLL_MS = 2_000

@@ -1,8 +1,10 @@
+import { useCallback } from 'react'
 import { useSearchParams } from 'react-router'
 import { useRestaurantStatus } from '../api/queries'
 import type { RestaurantStatus } from '../api/types'
 import ErrorMessage from '../components/ErrorMessage'
 import ImportCsv from '../components/ImportCsv'
+import RestaurantPanel from '../components/RestaurantPanel'
 import StatusBadge from '../components/StatusBadge'
 import { formatDateTime, formatRelative } from '../lib/format'
 import {
@@ -21,19 +23,25 @@ export default function RestaurantsPage() {
   const statusParam = params.get('status')
   const status = isLinkStatus(statusParam) ? statusParam : undefined
   const search = params.get('q') ?? ''
+  const selectedId = params.get('id')
 
-  function setParam(key: string, value: string | undefined) {
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
-        if (value) next.set(key, value)
-        else next.delete(key)
-        return next
-      },
-      // Typing in the search box shouldn't add a history entry per keystroke.
-      { replace: true },
-    )
-  }
+  // `replace` by default: typing in the search box shouldn't add a history
+  // entry per keystroke. Opening a panel does push one, so Back closes it.
+  const setParam = useCallback(
+    (key: string, value: string | undefined, { replace = true } = {}) => {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          if (value) next.set(key, value)
+          else next.delete(key)
+          return next
+        },
+        { replace },
+      )
+    },
+    [setParams],
+  )
+  const closePanel = useCallback(() => setParam('id', undefined), [setParam])
 
   return (
     <div className="space-y-6">
@@ -68,10 +76,21 @@ export default function RestaurantsPage() {
             />
             <RestaurantTable
               items={filterRestaurants(restaurants.data, { status, search })}
+              selectedId={selectedId}
+              onSelect={(id) => setParam('id', id, { replace: false })}
               onClear={() => setParams({}, { replace: true })}
             />
           </>
         ))}
+
+      {selectedId && restaurants.data && (
+        <RestaurantPanel
+          // A new key per restaurant resets the panel's state (e.g. a pending review).
+          key={selectedId}
+          restaurant={restaurants.data.find((r) => r.id === selectedId)}
+          onClose={closePanel}
+        />
+      )}
     </div>
   )
 }
@@ -115,7 +134,14 @@ function Filters({ items, status, search, onStatus, onSearch }: FiltersProps) {
   )
 }
 
-function RestaurantTable({ items, onClear }: { items: RestaurantStatus[]; onClear: () => void }) {
+interface TableProps {
+  items: RestaurantStatus[]
+  selectedId: string | null
+  onSelect: (id: string) => void
+  onClear: () => void
+}
+
+function RestaurantTable({ items, selectedId, onSelect, onClear }: TableProps) {
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-600">
@@ -142,8 +168,26 @@ function RestaurantTable({ items, onClear }: { items: RestaurantStatus[]; onClea
         </thead>
         <tbody>
           {items.map((r) => (
-            <tr key={r.id} className="border-b border-slate-100 last:border-0">
-              <td className="px-4 py-2 font-medium">{r.name}</td>
+            <tr
+              key={r.id}
+              onClick={() => onSelect(r.id)}
+              className={`cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50 ${
+                r.id === selectedId ? 'bg-slate-100' : ''
+              }`}
+            >
+              <td className="px-4 py-2 font-medium">
+                {/* The row is clickable with a mouse; this button makes it reachable by keyboard. */}
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation() // the row's onClick would select it a second time
+                    onSelect(r.id)
+                  }}
+                  className="text-left hover:underline"
+                >
+                  {r.name}
+                </button>
+              </td>
               <td className="px-4 py-2 text-slate-600">{r.city}</td>
               <td className="px-4 py-2">
                 <div className="flex items-center gap-2">
