@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { useAdminToken } from '../auth/adminToken'
 import { activeRun } from '../lib/runs'
 import { apiFetch } from './client'
-import type { CheckRun, Items, RestaurantStatus, RunStatus } from './types'
+import type { CheckRun, ImportResult, Items, RestaurantStatus, RunStatus } from './types'
 
 // Hierarchical keys: invalidating ['restaurants'] refreshes every query under it
 // (status list, each restaurant's history and reviews).
@@ -46,6 +46,17 @@ export function useRecentRuns() {
   }, [runningId, queryClient])
 
   return query
+}
+
+/** Upload a CSV file's text; new restaurants appear in the table as "Not checked". */
+export function useImportCsv() {
+  const { runAsAdmin } = useAdminToken()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (csv: string) =>
+      runAsAdmin((token) => apiFetch<ImportResult>('/restaurants/import', { method: 'POST', csv, token })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.restaurants }),
+  })
 }
 
 /** POST /checks/run returns 202 at once; the run itself is tracked by useRecentRuns. */

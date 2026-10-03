@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { STATUS_COLOR, type StatusTone } from '../lib/statusColors'
 
 interface Props {
   label: string
@@ -6,14 +7,7 @@ interface Props {
   /** One line of context under the value. */
   detail?: ReactNode
   /** A status dot next to the label; the label text carries the meaning too. */
-  tone?: 'good' | 'serious' | 'critical'
-}
-
-// Fixed status colours (never reused for chart series); always paired with a label.
-const toneColor = {
-  good: '#0ca30c',
-  serious: '#ec835a',
-  critical: '#d03b3b',
+  tone?: StatusTone
 }
 
 export default function StatCard({ label, value, detail, tone }: Props) {
@@ -21,7 +15,7 @@ export default function StatCard({ label, value, detail, tone }: Props) {
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <p className="flex items-center gap-2 text-sm text-slate-600">
         {tone && (
-          <span aria-hidden="true" className="size-2 rounded-full" style={{ backgroundColor: toneColor[tone] }} />
+          <span aria-hidden="true" className="size-2 rounded-full" style={{ backgroundColor: STATUS_COLOR[tone] }} />
         )}
         {label}
       </p>
