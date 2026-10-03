@@ -36,6 +36,55 @@ export function restaurantsRouter(adminToken: string, aiReviewer: AiReviewer) {
     res.json({ items, nextCursor: hasMore && last ? encodeCursor(last._id) : null });
   });
 
+  // Every restaurant with its latest check result and latest AI review score,
+  // for the dashboard table. Unpaginated: the dashboard filters and searches
+  // client-side, which is fine at this project's size (tens to hundreds).
+  // Registered before /:id so "status" isn't parsed as an id.
+  router.get('/status', async (_req, res) => {
+    const items = await Restaurant.aggregate([
+      { $sort: { name: 1, city: 1 } },
+      {
+        // localField + pipeline: matches on restaurantId, so it uses the
+        // { restaurantId: 1, checkedAt: -1 } index to pick the newest result.
+        $lookup: {
+          from: CheckResult.collection.name,
+          localField: '_id',
+          foreignField: 'restaurantId',
+          pipeline: [
+            { $sort: { checkedAt: -1 } },
+            { $limit: 1 },
+            { $project: { _id: 0, restaurantId: 0, __v: 0 } },
+          ],
+          as: 'latestCheck',
+        },
+      },
+      {
+        $lookup: {
+          from: AiReview.collection.name,
+          localField: '_id',
+          foreignField: 'restaurantId',
+          pipeline: [
+            { $sort: { createdAt: -1, _id: -1 } },
+            { $limit: 1 },
+            { $project: { _id: 0, score: 1, createdAt: 1 } },
+          ],
+          as: 'latestReview',
+        },
+      },
+      // Aggregation skips mongoose's toJSON, so shape the output like other responses.
+      {
+        $set: {
+          id: { $toString: '$_id' },
+          latestCheck: { $ifNull: [{ $first: '$latestCheck' }, null] },
+          latestReview: { $ifNull: [{ $first: '$latestReview' }, null] },
+        },
+      },
+      { $unset: ['_id', '__v'] },
+    ]).collation({ locale: 'en', strength: 2 });
+
+    res.json({ items });
+  });
+
   router.post('/', admin, async (req, res) => {
     const input = parse(restaurantInputSchema, req.body);
     try {

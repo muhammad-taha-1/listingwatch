@@ -1,5 +1,8 @@
+import { Types } from 'mongoose';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
+import { AiReview } from '../src/models/AiReview.js';
+import { CheckResult } from '../src/models/CheckResult.js';
 import { authHeader, useTestApp } from './helpers.js';
 
 const app = useTestApp();
@@ -151,6 +154,68 @@ describe('DELETE /restaurants/:id', () => {
       .delete('/restaurants/0123456789abcdef01234567')
       .set(authHeader);
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /restaurants/status', () => {
+  const criterion = { score: 10, reason: 'ok' };
+
+  function review(restaurantId: string, score: number, createdAt: Date) {
+    return {
+      restaurantId,
+      reviewedDescription: pizza.description,
+      score,
+      criteria: {
+        clarity: criterion,
+        cuisine: criterion,
+        location: criterion,
+        call_to_action: criterion,
+        honesty: criterion,
+      },
+      suggestedDescription: 'Better text.',
+      model: 'test-model',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 0,
+      createdAt,
+    };
+  }
+
+  it('returns each restaurant with its latest check and latest review, sorted by name', async () => {
+    const zeta = await createRestaurant({ ...pizza, name: 'zeta Grill' });
+    const alpha = await createRestaurant({ ...pizza, name: 'Alpha Diner' });
+    const runId = new Types.ObjectId();
+
+    await CheckResult.insertMany([
+      { restaurantId: alpha.id, runId, result: 'broken', statusCode: 404, latencyMs: 50, checkedAt: new Date('2026-01-01') },
+      { restaurantId: alpha.id, runId, result: 'ok', statusCode: 200, latencyMs: 40, checkedAt: new Date('2026-01-02') },
+    ]);
+    await AiReview.insertMany([
+      review(alpha.id, 40, new Date('2026-01-01')),
+      review(alpha.id, 85, new Date('2026-01-03')),
+    ]);
+
+    const res = await request(app()).get('/restaurants/status');
+    expect(res.status).toBe(200);
+    // Case-insensitive sort: "Alpha" before "zeta".
+    expect(res.body.items.map((r: { id: string }) => r.id)).toEqual([alpha.id, zeta.id]);
+
+    const [first, second] = res.body.items;
+    expect(first).toMatchObject({ ...pizza, name: 'Alpha Diner', id: alpha.id });
+    expect(first).not.toHaveProperty('_id');
+    expect(first.latestCheck).toMatchObject({ result: 'ok', statusCode: 200, latencyMs: 40, runId: String(runId) });
+    expect(first.latestCheck).not.toHaveProperty('restaurantId');
+    expect(first.latestReview).toEqual({ score: 85, createdAt: '2026-01-03T00:00:00.000Z' });
+
+    // Never checked or reviewed.
+    expect(second.latestCheck).toBeNull();
+    expect(second.latestReview).toBeNull();
+  });
+
+  it('returns an empty list when there are no restaurants', async () => {
+    const res = await request(app()).get('/restaurants/status');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: [] });
   });
 });
 
