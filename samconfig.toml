@@ -1,0 +1,14 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "listingwatch"
+resolve_s3 = true
+s3_prefix = "listingwatch"
+region = "eu-west-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "CorsOrigin=\"http://localhost:5173\" SsmPrefix=\"/listingwatch\" LogLevel=\"info\""
+image_repositories = []
+
+[default.global.parameters]
+region = "eu-west-1"
