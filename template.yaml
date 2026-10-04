@@ -18,6 +18,16 @@ Parameters:
     Type: String
     Default: info
     AllowedValues: [fatal, error, warn, info, debug, trace, silent]
+  AlertEmail:
+    Type: String
+    Default: ''
+    AllowedPattern: ^$|^[^@\s]+@[^@\s]+$
+    # Kept out of samconfig.toml (the repo is public). Pass it once with
+    # --parameter-overrides; later deploys reuse the previous value.
+    Description: Email that receives alarm notifications (empty = no subscription)
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
 
 # Settings shared by every function below (each can still override them).
 Globals:
@@ -125,7 +135,7 @@ Resources:
     Properties:
       Handler: checker-job.handler
       # ~30 restaurants take ~15s today; 5 minutes leaves plenty of headroom.
-      # Lambda's hard maximum is 15 minutes (see Phase 6 notes on scaling).
+      # Lambda's hard maximum is 15 minutes, which caps how far one run scales.
       Timeout: 300
       # Only the database: the checker never sees the Anthropic key or admin token.
       Policies:
@@ -189,6 +199,123 @@ Resources:
       LogGroupName: !Sub /aws/lambda/${CheckerFunction}
       RetentionInDays: 14
 
+  # ---- Alerting --------------------------------------------------------------
+
+  # Every alarm below publishes to this SNS topic when it fires (AlarmActions)
+  # and again when it recovers (OKActions); SNS forwards both to the email.
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: ListingWatch alerts
+
+  # AWS emails a confirmation link first; nothing is delivered until it's clicked.
+  AlertsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # Any 5xx from the API. Express turns most failures into a 500 response,
+  # which Lambda counts as a *successful* invocation, so Lambda's Errors metric
+  # alone would miss them. API Gateway sees every 5xx, including Lambda crashes.
+  Api5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: The ListingWatch API returned a 5xx response
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref HttpApi
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      # No requests = no data = nothing wrong.
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  # The API Lambda itself failed: a cold start that couldn't load secrets or
+  # reach Atlas, a timeout, or an out-of-memory crash.
+  ApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: ApiFunction invocations failed (crash, timeout or failed cold start)
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  # A check run failed as a whole (e.g. the database is unreachable) or the
+  # checker got an event it didn't understand. Broken restaurant links are
+  # results, not errors, so they don't trigger this.
+  CheckerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: CheckerFunction failed - a check run did not complete
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref CheckerFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  # Turns each completed nightly run's run_summary log line into a data point
+  # (value 1) of a custom metric, ListingWatch/ScheduledRunsCompleted.
+  ScheduledRunCompletedMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CheckerFunctionLogGroup
+      FilterPattern: '{ $.msg = "run_summary" && $.status = "completed" && $.trigger = "schedule" }'
+      MetricTransformations:
+        - MetricNamespace: ListingWatch
+          MetricName: ScheduledRunsCompleted
+          MetricValue: '1'
+          Unit: Count
+
+  # Alerting on *missing success*: fires when no nightly run has completed in
+  # the last 26 hours (daily schedule + 2h slack), whatever the reason - the
+  # schedule was disabled, the function was never invoked, or it hung. The
+  # Errors alarms can't catch these, because nothing errors.
+  # Most hours have no run at all, so missing data must count as breaching;
+  # the alarm needs all 26 hourly points to breach, so one completed run in
+  # the window keeps it OK. (Alarms with periods of 1h+ may look back 7 days.)
+  MissedNightlyRunAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: No nightly ListingWatch check run has completed in 26 hours
+      Namespace: ListingWatch
+      MetricName: ScheduledRunsCompleted
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 26
+      DatapointsToAlarm: 26
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
 Outputs:
   ApiUrl:
     Description: Base URL of the API (use it as VITE_API_URL in the dashboard)
@@ -199,3 +326,6 @@ Outputs:
   CheckerFunctionName:
     Description: Checker Lambda name (to invoke it by hand or read its logs)
     Value: !Ref CheckerFunction
+  AlertsTopicArn:
+    Description: SNS topic the alarms publish to
+    Value: !Ref AlertsTopic
