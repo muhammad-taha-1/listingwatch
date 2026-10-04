@@ -3,7 +3,9 @@ import type { RequestHandler } from 'express';
 import { pinoHttp } from 'pino-http';
 import { logger } from './logger.js';
 
-const REQUEST_ID_PATTERN = /^[\w-]{1,100}$/;
+// `=` is allowed because API Gateway request ids end in it (e.g. "dYUDXhPdIAMEbHA="),
+// and on Lambda serverless-http passes that id in as x-request-id.
+const REQUEST_ID_PATTERN = /^[\w=-]{1,100}$/;
 
 /**
  * Gives every request an id (reusing a well-formed incoming x-request-id) and a
