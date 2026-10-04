@@ -1,4 +1,4 @@
-import { Schema, Types, model, type InferSchemaType } from 'mongoose';
+import { Schema, model, type InferSchemaType } from 'mongoose';
 import { toJSONOptions } from '../lib/json.js';
 
 export const CHECK_OUTCOMES = ['ok', 'broken', 'wrong_destination', 'timeout'] as const;
@@ -7,8 +7,8 @@ export type CheckOutcome = (typeof CHECK_OUTCOMES)[number];
 /** One link check of one restaurant within one run. */
 const checkResultSchema = new Schema(
   {
-    restaurantId: { type: Types.ObjectId, ref: 'Restaurant', required: true },
-    runId: { type: Types.ObjectId, ref: 'CheckRun', required: true },
+    restaurantId: { type: Schema.Types.ObjectId, ref: 'Restaurant', required: true },
+    runId: { type: Schema.Types.ObjectId, ref: 'CheckRun', required: true },
     result: { type: String, enum: CHECK_OUTCOMES, required: true },
     // Absent when no HTTP response came back (DNS failure, timeout, refused).
     statusCode: { type: Number },

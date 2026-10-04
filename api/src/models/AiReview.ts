@@ -1,4 +1,4 @@
-import { Schema, Types, model, type InferSchemaType } from 'mongoose';
+import { Schema, model, type InferSchemaType } from 'mongoose';
 import { toJSONOptions } from '../lib/json.js';
 
 /** What the reviewer judges. A fixed list so the dashboard can group issues. */
@@ -47,7 +47,7 @@ const issueSchema = new Schema(
 /** One LLM review of one restaurant's listing description. */
 const aiReviewSchema = new Schema(
   {
-    restaurantId: { type: Types.ObjectId, ref: 'Restaurant', required: true },
+    restaurantId: { type: Schema.Types.ObjectId, ref: 'Restaurant', required: true },
     // The description as it was when reviewed; it may be edited afterwards.
     reviewedDescription: { type: String, required: true },
     // Sum of the criteria scores, computed in code rather than chosen by the model.
