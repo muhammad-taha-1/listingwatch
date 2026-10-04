@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+# The SAM transform expands the short AWS::Serverless::* resources below into
+# plain CloudFormation (Lambda function, IAM role, API Gateway routes, ...).
+Transform: AWS::Serverless-2016-10-31
+Description: ListingWatch API - Express on Lambda behind an HTTP API
+
+Parameters:
+  CorsOrigin:
+    Type: String
+    Default: http://localhost:5173
+    Description: Dashboard origin allowed by CORS (set to the Vercel URL once it exists)
+  SsmPrefix:
+    Type: String
+    Default: /listingwatch
+    AllowedPattern: ^/[\w/-]+[^/]$
+    Description: Path prefix of the SSM SecureString parameters holding the secrets
+  LogLevel:
+    Type: String
+    Default: info
+    AllowedValues: [fatal, error, warn, info, debug, trace, silent]
+
+Resources:
+  # Public HTTPS endpoint. HTTP API is the cheaper, simpler flavour of API
+  # Gateway; it forwards every request to ApiFunction (see Events below).
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      # Caps requests per second for the whole API, so a runaway client or bot
+      # can't run up the Lambda bill. Plenty for a demo dashboard.
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 10
+        ThrottlingBurstLimit: 20
+
+  # The Express app (src/lambda.ts) as one Lambda function. Express does the
+  # routing, so API Gateway only needs a single catch-all route.
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: api/
+      Handler: lambda.handler
+      Runtime: nodejs22.x
+      # Graviton (ARM) is about 20% cheaper per GB-second than x86; the bundle
+      # is plain JavaScript, so nothing needs compiling for it.
+      Architectures: [arm64]
+      MemorySize: 512
+      # HTTP API gives up after 30s, so 29s is the most a request can use.
+      # Covers an AI review that retries or re-asks the model.
+      Timeout: 29
+      Environment:
+        Variables:
+          NODE_ENV: production
+          LOG_LEVEL: !Ref LogLevel
+          CORS_ORIGIN: !Ref CorsOrigin
+          # Parameter NAMES only; lib/ssm.ts fetches the values at cold start.
+          MONGODB_URI_PARAM: !Sub ${SsmPrefix}/MONGODB_URI
+          ANTHROPIC_API_KEY_PARAM: !Sub ${SsmPrefix}/ANTHROPIC_API_KEY
+          ADMIN_TOKEN_PARAM: !Sub ${SsmPrefix}/ADMIN_TOKEN
+      # SAM adds these statements to the function's IAM role, on top of the
+      # basic permission to write CloudWatch logs. Least privilege: read only
+      # these three parameters, nothing else in SSM. No kms:Decrypt is needed
+      # because the SecureStrings use the AWS-managed aws/ssm key, which lets
+      # SSM decrypt for any principal in the account allowed to read them.
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: ssm:GetParameters
+              Resource:
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}/MONGODB_URI
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}/ANTHROPIC_API_KEY
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}/ADMIN_TOKEN
+      Events:
+        # No Path/Method = the $default route: every request goes to Express.
+        AllRequests:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+    # `sam build` bundles src/lambda.ts and its imports into one file with esbuild.
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/lambda.ts
+        Format: esm
+        OutExtension:
+          - .js=.mjs
+        Target: es2023
+        Minify: false
+        # Bundling renames some classes (ObjectId became _ObjectId), and
+        # Mongoose looks some types up by class name. Keep the original names.
+        KeepNames: true
+        # Some bundled CommonJS packages call require(); ESM has no require, so
+        # this banner recreates it at the top of the bundle.
+        Banner:
+          - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
+        External:
+          # Already in the nodejs22.x runtime, so leave it out of the bundle.
+          - '@aws-sdk/*'
+          # Optional MongoDB driver add-ons we don't use; the driver loads them
+          # only if present.
+          - kerberos
+          - '@mongodb-js/zstd'
+          - snappy
+          - socks
+          - aws4
+          - gcp-metadata
+          - mongodb-client-encryption
+
+  # Lambda would create this log group itself, but with logs kept forever.
+  # Declaring it here sets a 14-day retention and deletes it with the stack.
+  ApiFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ApiFunction}
+      RetentionInDays: 14
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the API (use it as VITE_API_URL in the dashboard)
+    Value: !GetAtt HttpApi.ApiEndpoint
+  ApiFunctionName:
+    Description: Lambda function name (for the console and logs)
+    Value: !Ref ApiFunction
