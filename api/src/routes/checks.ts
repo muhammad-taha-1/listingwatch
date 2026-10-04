@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdmin } from '../lib/auth.js';
-import { NotFoundError } from '../lib/errors.js';
+import { AppError, NotFoundError } from '../lib/errors.js';
 import { objectIdParams, parse } from '../lib/validate.js';
 import { CheckResult } from '../models/CheckResult.js';
 import { CheckRun } from '../models/CheckRun.js';
 import { Restaurant } from '../models/Restaurant.js';
-import { createRun, dispatchRun } from '../services/checkRunner.js';
+import { createRun } from '../services/checkRunner.js';
+import type { RunDispatcher } from '../services/runDispatcher.js';
 
 const runIdParamsSchema = objectIdParams('run');
 
@@ -14,7 +15,7 @@ const runsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(14),
 });
 
-export function checksRouter(adminToken: string) {
+export function checksRouter(adminToken: string, dispatchRun: RunDispatcher) {
   const router = Router();
   const admin = requireAdmin(adminToken);
 
@@ -23,7 +24,15 @@ export function checksRouter(adminToken: string) {
   router.post('/run', admin, async (req, res) => {
     const run = await createRun('manual');
     req.log.info({ runId: run.id }, 'manual check run requested');
-    dispatchRun(run._id);
+    try {
+      // Waits only for the hand-off (on Lambda, AWS accepting the async invoke).
+      await dispatchRun(run._id);
+    } catch (err) {
+      req.log.error({ err, runId: run.id }, 'could not start check run');
+      // Otherwise the run would sit in "running" with nothing working on it.
+      await CheckRun.updateOne({ _id: run._id }, { status: 'failed', finishedAt: new Date() });
+      throw new AppError(503, 'RUN_NOT_STARTED', 'Could not start the check run');
+    }
     res.status(202).location(`/checks/runs/${run.id}`).json({ runId: run.id, status: run.status });
   });
 

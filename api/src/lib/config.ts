@@ -9,6 +9,9 @@ const configSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   // Used only server-side by the AI reviewer (services/aiReviewer.ts).
   ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
+  // Set on Lambda only: POST /checks/run hands runs to this function.
+  // Unset locally, where runs execute in the API process.
+  CHECKER_FUNCTION_NAME: z.string().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

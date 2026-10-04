@@ -22,19 +22,6 @@ export async function createRun(trigger: CheckTrigger) {
 }
 
 /**
- * Run the checks without waiting for them (used by POST /checks/run).
- *
- * This works for the long-running local server. On Lambda it won't: the
- * function is frozen once the response is sent. Phase 6 replaces this body with
- * an async invoke of the checker Lambda; callers don't change.
- */
-export function dispatchRun(runId: Types.ObjectId): void {
-  // executeRun already logs and marks the run failed; this only stops an
-  // unhandled rejection from crashing the process.
-  executeRun(runId).catch(() => undefined);
-}
-
-/**
  * Check every restaurant's order URL and record one result each.
  *
  * - p-limit caps parallel requests, so we don't flood the network or the sites.

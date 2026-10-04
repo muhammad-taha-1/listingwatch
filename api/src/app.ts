@@ -6,10 +6,12 @@ import { checksRouter } from './routes/checks.js';
 import { healthRouter } from './routes/health.js';
 import { restaurantsRouter } from './routes/restaurants.js';
 import { createAiReviewer, createAnthropicClient, type AiReviewer } from './services/aiReviewer.js';
+import { createRunDispatcher, type RunDispatcher } from './services/runDispatcher.js';
 
 /** Dependencies tests can replace with fakes. */
 export interface AppDeps {
   aiReviewer?: AiReviewer;
+  dispatchRun?: RunDispatcher;
 }
 
 /**
@@ -19,6 +21,7 @@ export interface AppDeps {
 export function createApp(config: Config, deps: AppDeps = {}) {
   const aiReviewer =
     deps.aiReviewer ?? createAiReviewer(createAnthropicClient(config.ANTHROPIC_API_KEY));
+  const dispatchRun = deps.dispatchRun ?? createRunDispatcher(config.CHECKER_FUNCTION_NAME);
   const app = express();
 
   app.disable('x-powered-by');
@@ -28,7 +31,7 @@ export function createApp(config: Config, deps: AppDeps = {}) {
 
   app.use('/health', healthRouter);
   app.use('/restaurants', restaurantsRouter(config.ADMIN_TOKEN, aiReviewer));
-  app.use('/checks', checksRouter(config.ADMIN_TOKEN));
+  app.use('/checks', checksRouter(config.ADMIN_TOKEN, dispatchRun));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
