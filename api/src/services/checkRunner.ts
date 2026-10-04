@@ -45,15 +45,28 @@ export function dispatchRun(runId: Types.ObjectId): void {
  *
  * Marks the run "failed" and rethrows if the run as a whole can't proceed
  * (e.g. the database is down).
+ *
+ * Every run ends with exactly one "run_summary" log line (completed or failed),
+ * which CloudWatch queries and the missed-run alarm are built on.
  */
 export async function executeRun(runId: Types.ObjectId, options: RunOptions = {}) {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, concurrency = DEFAULT_CONCURRENCY } = options;
   const log = logger.child({ runId: String(runId) });
+  const started = Date.now();
+  let trigger: CheckTrigger | undefined;
+  let restaurantCount: number | undefined;
 
   try {
     const restaurants = await Restaurant.find({}, { expectedOrderUrl: 1 }).lean();
-    await CheckRun.updateOne({ _id: runId }, { restaurantCount: restaurants.length });
-    log.info({ restaurants: restaurants.length, concurrency, timeoutMs }, 'check run started');
+    restaurantCount = restaurants.length;
+    const runDoc = await CheckRun.findByIdAndUpdate(
+      runId,
+      { restaurantCount },
+      { returnDocument: 'after', projection: { trigger: 1 } },
+    );
+    if (!runDoc) throw new Error(`Check run ${String(runId)} not found`);
+    trigger = runDoc.trigger;
+    log.info({ trigger, restaurantCount, concurrency, timeoutMs }, 'check run started');
 
     const limit = pLimit(concurrency);
     const settled = await Promise.allSettled(
@@ -77,12 +90,19 @@ export async function executeRun(runId: Types.ObjectId, options: RunOptions = {}
       { status: 'completed', finishedAt: new Date(), totals },
       { returnDocument: 'after' },
     );
-    log.info({ totals }, 'check run completed');
+    log.info(
+      { trigger, status: 'completed', restaurantCount, totals, durationMs: Date.now() - started },
+      'run_summary',
+    );
     return run;
   } catch (err) {
     log.error({ err }, 'check run failed');
     await CheckRun.updateOne({ _id: runId }, { status: 'failed', finishedAt: new Date() }).catch(
       (updateErr: unknown) => log.error({ err: updateErr }, 'could not mark run as failed'),
+    );
+    log.error(
+      { trigger, status: 'failed', restaurantCount, durationMs: Date.now() - started },
+      'run_summary',
     );
     throw err;
   }
