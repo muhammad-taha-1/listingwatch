@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 # The SAM transform expands the short AWS::Serverless::* resources below into
 # plain CloudFormation (Lambda function, IAM role, API Gateway routes, ...).
 Transform: AWS::Serverless-2016-10-31
-Description: ListingWatch API - Express on Lambda behind an HTTP API
+Description: ListingWatch - Express API on Lambda plus a nightly link checker
 
 Parameters:
   CorsOrigin:
@@ -18,6 +18,22 @@ Parameters:
     Type: String
     Default: info
     AllowedValues: [fatal, error, warn, info, debug, trace, silent]
+
+# Settings shared by every function below (each can still override them).
+Globals:
+  Function:
+    CodeUri: api/
+    Runtime: nodejs22.x
+    # Graviton (ARM) is about 20% cheaper per GB-second than x86; the bundles
+    # are plain JavaScript, so nothing needs compiling for it.
+    Architectures: [arm64]
+    MemorySize: 512
+    Environment:
+      Variables:
+        NODE_ENV: production
+        LOG_LEVEL: !Ref LogLevel
+        # Parameter NAMES only; lib/ssm.ts fetches the values at cold start.
+        MONGODB_URI_PARAM: !Sub ${SsmPrefix}/MONGODB_URI
 
 Resources:
   # Public HTTPS endpoint. HTTP API is the cheaper, simpler flavour of API
@@ -36,31 +52,23 @@ Resources:
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: api/
       Handler: lambda.handler
-      Runtime: nodejs22.x
-      # Graviton (ARM) is about 20% cheaper per GB-second than x86; the bundle
-      # is plain JavaScript, so nothing needs compiling for it.
-      Architectures: [arm64]
-      MemorySize: 512
       # HTTP API gives up after 30s, so 29s is the most a request can use.
       # Covers an AI review that retries or re-asks the model.
       Timeout: 29
       Environment:
         Variables:
-          NODE_ENV: production
-          LOG_LEVEL: !Ref LogLevel
           CORS_ORIGIN: !Ref CorsOrigin
-          # Parameter NAMES only; lib/ssm.ts fetches the values at cold start.
-          MONGODB_URI_PARAM: !Sub ${SsmPrefix}/MONGODB_URI
           ANTHROPIC_API_KEY_PARAM: !Sub ${SsmPrefix}/ANTHROPIC_API_KEY
           ADMIN_TOKEN_PARAM: !Sub ${SsmPrefix}/ADMIN_TOKEN
+          # POST /checks/run hands each run to this function (runDispatcher.ts).
+          CHECKER_FUNCTION_NAME: !Ref CheckerFunction
       # SAM adds these statements to the function's IAM role, on top of the
-      # basic permission to write CloudWatch logs. Least privilege: read only
-      # these three parameters, nothing else in SSM. No kms:Decrypt is needed
-      # because the SecureStrings use the AWS-managed aws/ssm key, which lets
-      # SSM decrypt for any principal in the account allowed to read them.
+      # basic permission to write CloudWatch logs. Least privilege throughout.
       Policies:
+        # Read only these three parameters, nothing else in SSM. No kms:Decrypt
+        # is needed because the SecureStrings use the AWS-managed aws/ssm key,
+        # which lets SSM decrypt for any principal allowed to read them.
         - Statement:
             - Effect: Allow
               Action: ssm:GetParameters
@@ -68,6 +76,11 @@ Resources:
                 - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}/MONGODB_URI
                 - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}/ANTHROPIC_API_KEY
                 - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}/ADMIN_TOKEN
+        # Start the checker, and no other function.
+        - Statement:
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !GetAtt CheckerFunction.Arn
       Events:
         # No Path/Method = the $default route: every request goes to Express.
         AllRequests:
@@ -105,12 +118,75 @@ Resources:
           - gcp-metadata
           - mongodb-client-encryption
 
-  # Lambda would create this log group itself, but with logs kept forever.
-  # Declaring it here sets a 14-day retention and deletes it with the stack.
+  # Runs the link check over every restaurant (src/checker-job.ts): nightly
+  # from the schedule below, or on demand when the API invokes it.
+  CheckerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: checker-job.handler
+      # ~30 restaurants take ~15s today; 5 minutes leaves plenty of headroom.
+      # Lambda's hard maximum is 15 minutes (see Phase 6 notes on scaling).
+      Timeout: 300
+      # Only the database: the checker never sees the Anthropic key or admin token.
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: ssm:GetParameters
+              Resource:
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}/MONGODB_URI
+      # Async invokes (from the API and the scheduler) are retried twice by
+      # default. A retry would check everything again, so turn it off: a failed
+      # run fires the Errors alarm instead and someone looks at it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+      Events:
+        # EventBridge Scheduler: invokes the function at 03:00 UTC every day
+        # with the event { "trigger": "schedule" }.
+        Nightly:
+          Type: ScheduleV2
+          Properties:
+            Description: Nightly ListingWatch link check
+            ScheduleExpression: cron(0 3 * * ? *)
+            ScheduleExpressionTimezone: UTC
+            Input: '{"trigger":"schedule"}'
+            # The scheduler's own retries, also off for the same reason.
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/checker-job.ts
+        Format: esm
+        OutExtension:
+          - .js=.mjs
+        Target: es2023
+        Minify: false
+        KeepNames: true
+        Banner:
+          - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
+        External:
+          - '@aws-sdk/*'
+          - kerberos
+          - '@mongodb-js/zstd'
+          - snappy
+          - socks
+          - aws4
+          - gcp-metadata
+          - mongodb-client-encryption
+
+  # Lambda would create these log groups itself, but with logs kept forever.
+  # Declaring them sets a 14-day retention and deletes them with the stack.
   ApiFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${ApiFunction}
+      RetentionInDays: 14
+
+  CheckerFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${CheckerFunction}
       RetentionInDays: 14
 
 Outputs:
@@ -120,3 +196,6 @@ Outputs:
   ApiFunctionName:
     Description: Lambda function name (for the console and logs)
     Value: !Ref ApiFunction
+  CheckerFunctionName:
+    Description: Checker Lambda name (to invoke it by hand or read its logs)
+    Value: !Ref CheckerFunction
