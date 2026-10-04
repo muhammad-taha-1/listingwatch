@@ -17,12 +17,20 @@ export class ConfigError extends Error {
   override name = 'ConfigError';
 }
 
-/** Validate an env object. Pure, so it's easy to test. */
-export function parseConfig(env: Record<string, string | undefined>): Config {
+// The scheduled checker only talks to MongoDB, so it doesn't need (and in
+// production isn't given) the Anthropic key or the admin token.
+const checkerConfigSchema = configSchema.pick({ NODE_ENV: true, MONGODB_URI: true, LOG_LEVEL: true });
+
+export type CheckerConfig = z.infer<typeof checkerConfigSchema>;
+
+function parseWith<S extends z.ZodType>(
+  schema: S,
+  env: Record<string, string | undefined>,
+): z.infer<S> {
   // Treat `KEY=` (empty string) as unset, so optional keys and defaults behave
   // the same whether the line is blank or missing from .env.
   const cleaned = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
-  const result = configSchema.safeParse(cleaned);
+  const result = schema.safeParse(cleaned);
   if (!result.success) {
     // Only report which keys are wrong, never the values (they may be secrets).
     const problems = result.error.issues
@@ -31,6 +39,16 @@ export function parseConfig(env: Record<string, string | undefined>): Config {
     throw new ConfigError(`Invalid configuration: ${problems}`);
   }
   return result.data;
+}
+
+/** Validate an env object. Pure, so it's easy to test. */
+export function parseConfig(env: Record<string, string | undefined>): Config {
+  return parseWith(configSchema, env);
+}
+
+/** Validate the smaller env of the checker Lambda (checker-job.ts). */
+export function parseCheckerConfig(env: Record<string, string | undefined>): CheckerConfig {
+  return parseWith(checkerConfigSchema, env);
 }
 
 let cached: Config | undefined;

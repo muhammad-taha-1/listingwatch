@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, parseConfig } from '../src/lib/config.js';
+import { ConfigError, parseCheckerConfig, parseConfig } from '../src/lib/config.js';
 
 const valid = {
   MONGODB_URI: 'mongodb://localhost:27017/listingwatch',
@@ -34,5 +34,20 @@ describe('parseConfig', () => {
     }
     expect(message).toMatch(/ADMIN_TOKEN/);
     expect(message).not.toContain('short-secret');
+  });
+});
+
+describe('parseCheckerConfig', () => {
+  it('needs only MONGODB_URI, not the API secrets', () => {
+    const config = parseCheckerConfig({ MONGODB_URI: valid.MONGODB_URI });
+    expect(config).toEqual({
+      MONGODB_URI: valid.MONGODB_URI,
+      NODE_ENV: 'development',
+      LOG_LEVEL: 'info',
+    });
+  });
+
+  it('fails fast without MONGODB_URI', () => {
+    expect(() => parseCheckerConfig({})).toThrow(/MONGODB_URI/);
   });
 });
